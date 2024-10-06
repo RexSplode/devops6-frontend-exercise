@@ -1,0 +1,38 @@
+---
+
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Configure known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.BASTION_PUBLIC_IP }} >> ~/.ssh/known_hosts
+          ssh -o ProxyCommand="ssh -W %h:%p -q ec2-user@${{ secrets.BASTION_PUBLIC_IP }}" ${{ secrets.EC2_PRIVATE_IP }} exit || true
+
+
+      - name: Build an image
+        run: docker build -t frontend .
+
+      - name: Deploy to EC2 instance
+        run: |
+          ssh -o ProxyCommand="ssh -W %h:%p -q ec2-user@${{ secrets.BASTION_PUBLIC_IP }}" ec2-user@${{ secrets.EC2_PRIVATE_IP }} "
+          docker ps -q --filter 'ancestor=frontend' | xargs -r docker stop;
+          docker ps -a -q --filter 'ancestor=frontend' | xargs -r docker rm;
+          docker run -d -p 80:8080 backend"
